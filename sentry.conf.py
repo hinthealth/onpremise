@@ -321,3 +321,6 @@ if env('SENTRY_USE_SSL', False):
 # Restrict registration of new users
 SENTRY_FEATURES['auth:register'] = False
 SENTRY_PUBLIC = False
+
+# Allow to set custom url prefix
+SENTRY_OPTIONS['system.url-prefix'] = env('SENTRY_URL_PREFIX')
