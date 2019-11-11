@@ -1,4 +1,3 @@
-
 # This file is just Python, with a touch of Django which means
 # you can inherit and tweak settings to your hearts content.
 
@@ -222,24 +221,3 @@ SENTRY_FEATURES.update(
 
 # BITBUCKET_CONSUMER_KEY = 'YOUR_BITBUCKET_CONSUMER_KEY'
 # BITBUCKET_CONSUMER_SECRET = 'YOUR_BITBUCKET_CONSUMER_SECRET'
-
-
-## Custom hint modifications
-
-# Use 3 web workers
-SENTRY_WEB_OPTIONS = {
-    'workers': 3,  # the number of web workers
-}
-
-# Force ssl when using ssl
-if env('SENTRY_USE_SSL', False):
-    MIDDLEWARE_CLASSES = (
-        'sslify.middleware.SSLifyMiddleware',
-    ) + MIDDLEWARE_CLASSES
-
-# Restrict registration of new users
-SENTRY_FEATURES['auth:register'] = False
-SENTRY_PUBLIC = False
-
-# Allow to set custom url prefix
-SENTRY_OPTIONS['system.url-prefix'] = env('SENTRY_URL_PREFIX')
