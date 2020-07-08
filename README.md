@@ -101,6 +101,7 @@ The included `install.sh` script is meant to be idempotent and to bring you to t
 - Update this repo against upstream (`getsentry/onpremise`), if any conflicts where to happen it would only
 be on this README.
 - Add any new required env variables
+- Backup database just in case the upgrade fails you need to rollback
 - Follow the steps to ##Deploy
 - Login to the Aptible app via ssh and execute: `sentry upgrade`
 
