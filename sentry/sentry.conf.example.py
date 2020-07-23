@@ -1,4 +1,3 @@
-
 # This file is just Python, with a touch of Django which means
 # you can inherit and tweak settings to your hearts content.
 
@@ -29,6 +28,10 @@ SENTRY_USE_BIG_INTS = True
 # Instruct Sentry that this install intends to be run by a single organization
 # and thus various UI optimizations should be enabled.
 SENTRY_SINGLE_ORGANIZATION = True
+
+SENTRY_OPTIONS["system.event-retention-days"] = int(
+    env('SENTRY_EVENT_RETENTION_DAYS', '90')
+)
 
 #########
 # Redis #
@@ -133,7 +136,7 @@ SENTRY_TSDB = "sentry.tsdb.redissnuba.RedisSnubaTSDB"
 # SNUBA #
 #########
 
-SENTRY_SEARCH = "sentry.search.snuba.SnubaSearchBackend"
+SENTRY_SEARCH = "sentry.search.snuba.EventsDatasetSnubaSearchBackend"
 SENTRY_SEARCH_OPTIONS = {}
 SENTRY_TAGSTORE_OPTIONS = {}
 
@@ -152,13 +155,30 @@ SENTRY_DIGESTS = "sentry.digests.backends.redis.RedisBackend"
 SENTRY_WEB_HOST = "0.0.0.0"
 SENTRY_WEB_PORT = 9000
 SENTRY_WEB_OPTIONS = {
-    "http": "%s:%s" % (SENTRY_WEB_HOST, SENTRY_WEB_PORT),
-    "protocol": "uwsgi",
-    # This is needed to prevent https://git.io/fj7Lw
-    "uwsgi-socket": None,
+    # These ase for proper HTTP/1.1 support from uWSGI
+    # Without these it doesn't do keep-alives causing
+    # issues with Relay's direct requests.
     "http-keepalive": True,
+    "http-chunked-input": True,
+    # the number of web workers
+    'workers': 3,
+    # Turn off memory reporting
     "memory-report": False,
-    # 'workers': 3,  # the number of web workers
+    # Some stuff so uwsgi will cycle workers sensibly
+    'max-requests': 100000,
+    'max-requests-delta': 500,
+    'max-worker-lifetime': 86400,
+    # Duplicate options from sentry default just so we don't get
+    # bit by sentry changing a default value that we depend on.
+    'thunder-lock': True,
+    'log-x-forwarded-for': False,
+    'buffer-size': 32768,
+    'limit-post': 209715200,
+    'disable-logging': True,
+    'reload-on-rss': 600,
+    'ignore-sigpipe': True,
+    'ignore-write-errors': True,
+    'disable-write-exception': True,
 }
 
 ###########
@@ -190,14 +210,9 @@ SENTRY_FEATURES.update(
             "organizations:integrations-issue-basic",
             "organizations:integrations-issue-sync",
             "organizations:invite-members",
-            "organizations:new-issue-ui",
-            "organizations:repos",
-            "organizations:require-2fa",
-            "organizations:sentry10",
             "organizations:sso-basic",
             "organizations:sso-rippling",
             "organizations:sso-saml2",
-            "organizations:suggested-commits",
             "projects:custom-inbound-filters",
             "projects:data-forwarding",
             "projects:discard-groups",
@@ -210,11 +225,9 @@ SENTRY_FEATURES.update(
 
 ######################
 # GitHub Integration #
-#####################
+######################
 
-# GITHUB_APP_ID = 'YOUR_GITHUB_APP_ID'
-# GITHUB_API_SECRET = 'YOUR_GITHUB_API_SECRET'
-# GITHUB_EXTENDED_PERMISSIONS = ['repo']
+GITHUB_EXTENDED_PERMISSIONS = ['repo']
 
 #########################
 # Bitbucket Integration #
@@ -222,24 +235,3 @@ SENTRY_FEATURES.update(
 
 # BITBUCKET_CONSUMER_KEY = 'YOUR_BITBUCKET_CONSUMER_KEY'
 # BITBUCKET_CONSUMER_SECRET = 'YOUR_BITBUCKET_CONSUMER_SECRET'
-
-
-## Custom hint modifications
-
-# Use 3 web workers
-SENTRY_WEB_OPTIONS = {
-    'workers': 3,  # the number of web workers
-}
-
-# Force ssl when using ssl
-if env('SENTRY_USE_SSL', False):
-    MIDDLEWARE_CLASSES = (
-        'sslify.middleware.SSLifyMiddleware',
-    ) + MIDDLEWARE_CLASSES
-
-# Restrict registration of new users
-SENTRY_FEATURES['auth:register'] = False
-SENTRY_PUBLIC = False
-
-# Allow to set custom url prefix
-SENTRY_OPTIONS['system.url-prefix'] = env('SENTRY_URL_PREFIX')

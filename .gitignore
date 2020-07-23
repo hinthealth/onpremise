@@ -33,6 +33,7 @@ var/
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
+sentry_install_log*.txt
 
 # Unit test / coverage reports
 htmlcov/
@@ -42,7 +43,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
-*,cover
+*.cover
 .hypothesis/
 
 # Translations
@@ -65,5 +66,15 @@ target/
 # pyenv
 .python-version
 
+# https://docs.docker.com/compose/extends/
+docker-compose.override.yml
+
 *.tar
 data/
+.vscode/tags
+
+# custom Sentry config
+sentry/sentry.conf.py
+sentry/*.bak
+sentry/requirements.txt
+relay/credentials.json
