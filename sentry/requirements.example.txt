@@ -1,3 +1,1 @@
 # Add plugins here
-redis==2.10.5
-django-sslify==0.2.7

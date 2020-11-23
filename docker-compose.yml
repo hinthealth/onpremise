@@ -7,7 +7,7 @@ x-sentry-defaults: &sentry_defaults
     context: ./sentry
     args:
       - SENTRY_IMAGE
-      - SENTRY_VERSION
+      - SENTRY_PYTHON3
   image: sentry-onpremise-local
   depends_on:
     - redis
@@ -18,6 +18,7 @@ x-sentry-defaults: &sentry_defaults
     - snuba-consumer
     - snuba-outcomes-consumer
     - snuba-sessions-consumer
+    - snuba-transactions-consumer
     - snuba-replacer
     - symbolicator
     - kafka
@@ -33,7 +34,7 @@ x-snuba-defaults: &snuba_defaults
     - redis
     - clickhouse
     - kafka
-  image: 'getsentry/snuba:$SENTRY_VERSION'
+  image: '$SNUBA_IMAGE'
   environment:
     SNUBA_SETTINGS: docker
     CLICKHOUSE_HOST: clickhouse
@@ -56,6 +57,10 @@ services:
     image: 'redis:5.0-alpine'
     volumes:
       - 'sentry-redis:/data'
+    ulimits:
+      nofile:
+        soft: 10032
+        hard: 10032
   postgres:
     << : *restart_policy
     image: 'postgres:9.6'
@@ -84,6 +89,8 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: '1'
+      KAFKA_LOG_RETENTION_HOURS: '24'
       KAFKA_MESSAGE_MAX_BYTES: '50000000' #50MB or bust
       KAFKA_MAX_REQUEST_SIZE: '50000000' #50MB on requests apparently too
       CONFLUENT_SUPPORT_METRICS_ENABLE: 'false'
@@ -96,7 +103,7 @@ services:
       - 'sentry-secrets:/etc/kafka/secrets'
   clickhouse:
     << : *restart_policy
-    image: 'yandex/clickhouse-server:19.17'
+    image: 'yandex/clickhouse-server:20.3.9.70'
     ulimits:
       nofile:
         soft: 262144
@@ -104,6 +111,15 @@ services:
     volumes:
       - 'sentry-clickhouse:/var/lib/clickhouse'
       - 'sentry-clickhouse-log:/var/log/clickhouse-server'
+      - type: bind
+        read_only: true
+        source: ./clickhouse/config.xml
+        target: /etc/clickhouse-server/config.d/sentry.xml
+    environment:
+      # This limits Clickhouse's memory to 30% of the host memory
+      # If you have high volume and your search return incomplete results
+      # You might want to change this to a higher value (and ensure your host has enough memory)
+      MAX_MEMORY_USAGE_RATIO: 0.3
   snuba-api:
     << : *snuba_defaults
   # Kafka consumer responsible for feeding events into Clickhouse
@@ -120,30 +136,44 @@ services:
   snuba-sessions-consumer:
     << : *snuba_defaults
     command: consumer --storage sessions_raw --auto-offset-reset=latest --max-batch-time-ms 750
+  # Kafka consumer responsible for feeding transactions data into Clickhouse
+  snuba-transactions-consumer:
+    << : *snuba_defaults
+    command: consumer --storage transactions --consumer-group transactions_group --auto-offset-reset=latest --max-batch-time-ms 750 --commit-log-topic=snuba-commit-log
   snuba-replacer:
     << : *snuba_defaults
     command: replacer --storage events --auto-offset-reset=latest --max-batch-size 3
+  snuba-subscription-consumer-events:
+    << : *snuba_defaults
+    command: subscriptions --auto-offset-reset=latest --consumer-group=snuba-events-subscriptions-consumers --topic=events --result-topic=events-subscription-results --dataset=events --commit-log-topic=snuba-commit-log --commit-log-group=snuba-consumers --delay-seconds=60 --schedule-ttl=60
+  snuba-subscription-consumer-transactions:
+    << : *snuba_defaults
+    command: subscriptions --auto-offset-reset=latest --consumer-group=snuba-transactions-subscriptions-consumers --topic=events --result-topic=transactions-subscription-results --dataset=transactions --commit-log-topic=snuba-commit-log --commit-log-group=transactions_group --delay-seconds=60 --schedule-ttl=60
   snuba-cleanup:
     << : *snuba_defaults
     image: snuba-cleanup-onpremise-local
     build:
       context: ./cron
       args:
-        BASE_IMAGE: 'getsentry/snuba:$SENTRY_VERSION'
+        BASE_IMAGE: '$SNUBA_IMAGE'
     command: '"*/5 * * * * gosu snuba snuba cleanup --dry-run False"'
   symbolicator:
     << : *restart_policy
-    image: 'getsentry/symbolicator:$SYMBOLICATOR_VERSION'
+    image: '$SYMBOLICATOR_IMAGE'
     volumes:
       - 'sentry-symbolicator:/data'
-    command: run
+      - type: bind
+        read_only: true
+        source: ./symbolicator
+        target: /etc/symbolicator
+    command: run -c /etc/symbolicator/config.yml
   symbolicator-cleanup:
     << : *restart_policy
     image: symbolicator-cleanup-onpremise-local
     build:
       context: ./cron
       args:
-        BASE_IMAGE: 'getsentry/symbolicator:$SYMBOLICATOR_VERSION'
+        BASE_IMAGE: '$SYMBOLICATOR_IMAGE'
     command: '"55 23 * * * gosu symbolicator symbolicator cleanup"'
     volumes:
       - 'sentry-symbolicator:/data'
@@ -162,6 +192,12 @@ services:
     << : *sentry_defaults
     # Increase `--commit-batch-size 1` below to deal with high-load environments.
     command: run post-process-forwarder --commit-batch-size 1
+  subscription-consumer-events:
+    << : *sentry_defaults
+    command: run query-subscription-consumer --commit-batch-size 1 --topic events-subscription-results
+  subscription-consumer-transactions:
+    << : *sentry_defaults
+    command: run query-subscription-consumer --commit-batch-size 1 --topic transactions-subscription-results
   sentry-cleanup:
     << : *sentry_defaults
     image: sentry-cleanup-onpremise-local
@@ -173,7 +209,7 @@ services:
   nginx:
     << : *restart_policy
     ports:
-      - '9000:80/tcp'
+      - '$SENTRY_BIND:80/tcp'
     image: 'nginx:1.16'
     volumes:
       - type: bind
@@ -185,7 +221,7 @@ services:
       - relay
   relay:
     << : *restart_policy
-    image: 'getsentry/relay:$SENTRY_VERSION'
+    image: '$RELAY_IMAGE'
     volumes:
       - type: bind
         read_only: true
