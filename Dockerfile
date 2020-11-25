@@ -1,4 +1,4 @@
-FROM sentry:9.1.2
+FROM getsentry/sentry:34c6f3d
 
 COPY . /usr/src/sentry
 
